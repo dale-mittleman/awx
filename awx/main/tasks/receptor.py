@@ -26,6 +26,8 @@ from awx.main.utils.common import (
     parse_yaml_or_json,
     cleanup_new_process,
 )
+from awx.main.constants import MAX_ISOLATED_PATH_COLON_DELIMITER
+
 
 # Receptorctl
 from receptorctl.socket_interface import ReceptorControl
@@ -487,6 +489,29 @@ class AWXReceptorJob:
         if self.task and self.task.instance.execution_environment:
             if self.task.instance.execution_environment.pull:
                 pod_spec['spec']['containers'][0]['imagePullPolicy'] = pull_options[self.task.instance.execution_environment.pull]
+
+        # This allows the user to also expose the isolated path list
+        # to EEs running in k8s/ocp environments. This assumes the node and SA supports hostPath volumes
+        # type is not passed due to backward compatibility,
+        # which means that no checks will be performed before mounting the hostPath volume.
+        if settings.AWX_MOUNT_ISOLATED_PATHS_ON_K8S and settings.AWX_ISOLATION_SHOW_PATHS:
+            spec_volume_mounts = []
+            spec_volumes = []
+
+            for idx, path in enumerate(settings.AWX_ISOLATION_SHOW_PATHS):
+                if path.count(':') == MAX_ISOLATED_PATH_COLON_DELIMITER:
+                    src, dest = path.split(':')[:-1]
+                elif path.count(':') == MAX_ISOLATED_PATH_COLON_DELIMITER - 1:
+                    src, dest = path.split(':')
+                else:
+                    src = dest = path
+
+                spec_volumes.append({'name': f'volume-{idx}', 'hostPath': {'path': src}})
+                # enforcing readOnly for now
+                spec_volume_mounts.append({'name': f'volume-{idx}', 'mountPath': f'{dest}', 'readOnly': True})
+
+            pod_spec['spec']['volumes'] = spec_volumes
+            pod_spec['spec']['containers'][0]['volumeMounts'] = spec_volume_mounts
 
         if self.task and self.task.instance.is_container_group_task:
             # If EE credential is passed, create an imagePullSecret
