@@ -1,7 +1,7 @@
 from .plugin import CredentialPlugin
 from django.utils.translation import ugettext_lazy as _
 
-from thycotic.secrets.server import PasswordGrantAuthorizer, SecretServer, ServerSecret
+from thycotic.secrets.server import PasswordGrantAuthorizer, DomainPasswordGrantAuthorizer, SecretServer, ServerSecret
 
 tss_inputs = {
     'fields': [
@@ -24,6 +24,12 @@ tss_inputs = {
             'type': 'string',
             'secret': True,
         },
+        {
+            'id': 'domain',
+            'label': _('Domain'),
+            'help_text': _('The Active Directory domain the Secret Server is joined to (not relevant in all cases).'),
+            'type': 'string',
+        }
     ],
     'metadata': [
         {
@@ -44,12 +50,26 @@ tss_inputs = {
 
 
 def tss_backend(**kwargs):
-    authorizer = PasswordGrantAuthorizer(kwargs['server_url'], kwargs['username'], kwargs['password'])
-    secret_server = SecretServer(kwargs['server_url'], authorizer)
-    secret_dict = secret_server.get_secret(kwargs['secret_id'])
+    server_url = kwargs['server_url']
+    username = kwargs['username']
+    password = kwargs['password']
+    secret_id = kwargs['secret_id']
+    secret_field = kwargs['secret_field']
+    
+    domain = None
+    if 'domain' in kwargs.keys():
+        domain = kwargs['domain']
+
+    if 'domain' is not None:
+        authorizer = DomainPasswordGrantAuthorizer(server_url, username, domain, password)
+    else:
+        authorizer = PasswordGrantAuthorizer(server_url, username, password)
+
+    secret_server = SecretServer(server_url, authorizer)
+    secret_dict = secret_server.get_secret(secret_id)
     secret = ServerSecret(**secret_dict)
 
-    return secret.fields[kwargs['secret_field']]
+    return secret.fields[secret_field]
 
 
 tss_plugin = CredentialPlugin(
